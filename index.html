@@ -3,44 +3,299 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LIFF検証</title>
+<title>空き状況カレンダー</title>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js" charset="utf-8"></script>
 <style>
-  body { font-family: sans-serif; padding: 20px; }
-  button { font-size: 20px; padding: 16px; width: 100%; }
-  #log { margin-top: 16px; font-size: 14px; color: #555; white-space: pre-wrap; }
+  :root {
+    --brown: #403934;
+    --brown-light: #8C796C;
+    --line: #E4DED8;
+    --bg: #FAF8F6;
+    --gray: #EEEBE8;
+    --green: #4E8A55;
+    --sat: #DCE8F7;
+    --sat-text: #3A6EA5;
+    --sun: #F7DEDE;
+    --sun-text: #C0504D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 12px 8px 24px;
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: var(--brown);
+    background: var(--bg);
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .menu { font-size: 14px; color: var(--brown-light); margin-bottom: 10px; }
+  .note {
+    font-size: 13px; line-height: 1.6;
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 12px;
+  }
+
+  /* 週の切り替え */
+  .nav { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .nav button {
+    font-size: 14px; color: var(--brown);
+    background: #fff; border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; flex: 1;
+  }
+  .nav button:disabled { color: #C8C2BC; }
+  .week-label { font-size: 13px; color: var(--brown-light); margin-bottom: 8px; text-align: center; }
+
+  /* 週表 */
+  table { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; }
+  th, td { text-align: center; padding: 0; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--gray); font-size: 13px; padding: 4px 0; border-radius: 4px;
+  }
+  thead th .month { display: block; font-size: 11px; color: var(--brown-light); }
+  thead th .date { display: block; font-size: 16px; font-weight: bold; }
+  thead th.sat { background: var(--sat); color: var(--sat-text); }
+  thead th.sun { background: var(--sun); color: var(--sun-text); }
+  th.time-head { width: 50px; }
+  td.time { font-size: 12px; font-weight: bold; background: var(--gray); border-radius: 4px; height: 44px; }
+  td.cell { background: #fff; border-radius: 4px; height: 44px; }
+  td.cell.off { background: var(--gray); }
+  td.cell.full { color: #C8C2BC; font-size: 14px; }
+  td.cell button {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%; border: none; background: none; padding: 0;
+    color: var(--green); font-size: 22px; font-weight: bold; font-family: inherit;
+  }
+  td.cell button:disabled { color: #C8C2BC; }
+
+  .message { text-align: center; font-size: 14px; color: var(--brown-light); padding: 24px 0; }
+  .error { color: var(--sun-text); }
 </style>
 </head>
 <body>
-  <h1 style="font-size:20px">LIFFの検証</h1>
-  <button id="send" disabled>10月14日（水）14:00で予約</button>
-  <div id="log">準備中…</div>
+  <h1>ご希望の日時をお選びください</h1>
+  <div class="menu" id="menu"></div>
+
+  <div class="note">
+    ご希望の日時の <strong>○</strong> をタップしてください。<br>
+    LINEのトーク画面に、ご予約内容の確認が表示されます。
+  </div>
+
+  <div class="nav">
+    <button id="btn-first">直近の空き</button>
+    <button id="btn-prev">‹ 前の週</button>
+    <button id="btn-next">次の週 ›</button>
+  </div>
+  <div class="week-label" id="week-label"></div>
+
+  <div id="calendar"><div class="message">読み込み中です…</div></div>
 
 <script>
-  const LIFF_ID = '2011965863-h9A4Rz8Z';
+  // ===== 設定（ご自身の値に書き換えてください） =====
+  const LIFF_ID = 'ここにLIFF IDを入れる';
+  const DATA_URL = 'ここにカレンダー用（中継）プロジェクトのウェブアプリURLを入れる';
+  // ==================================================
 
-  function log(text) {
-    document.getElementById('log').textContent = text;
+  const CONFIG = { menu: '', dataUrl: DATA_URL };
+  let current = null;   // 今表示している週のデータ
+  let sending = false;  // 送信中（連打を防ぐ）
+
+  // 予約ボットの窓口から、データを受け取る
+  function fetchData(params) {
+    const query = Object.keys(params).map(function(key) {
+      return key + '=' + encodeURIComponent(params[key]);
+    }).join('&');
+    return fetch(CONFIG.dataUrl + '?' + query).then(function(res) { return res.json(); });
   }
 
+  // 週を読み込んで表示する
+  function loadWeek(start) {
+    showMessage('読み込み中です…');
+    setButtons(false);
+
+    fetchData({ action: 'slots', menu: CONFIG.menu, start: start || '' })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        current = data;
+        render(data);
+      })
+      .catch(function() {
+        showMessage('空き状況を読み込めませんでした。時間をおいて、もう一度開いてください。', true);
+      });
+  }
+
+  // 一番近い空きがある週へ移動する
+  function loadFirst() {
+    showMessage('空きを探しています…');
+    setButtons(false);
+
+    fetchData({ action: 'first', menu: CONFIG.menu })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        if (!data.date) {
+          showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
+          return;
+        }
+        loadWeek(data.date);
+      })
+      .catch(function() {
+        showMessage('空き状況を読み込めませんでした。時間をおいて、もう一度開いてください。', true);
+      });
+  }
+
+  // 週表を組み立てる（文字はすべて textContent で入れる）
+  function render(data) {
+    document.getElementById('menu').textContent =
+      'メニュー：' + data.menu + '（' + data.duration + '分）';
+
+    document.getElementById('week-label').textContent =
+      data.weeksFromNow === 0 ? '今週' : '今日から ' + data.weeksFromNow + ' 週間後';
+
+    const table = document.createElement('table');
+
+    // 見出し（日付）
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const corner = document.createElement('th');
+    corner.className = 'time-head';
+    headRow.appendChild(corner);
+
+    data.days.forEach(function(day, i) {
+      const th = document.createElement('th');
+      if (day.weekday === 6) th.className = 'sat';
+      if (day.weekday === 0) th.className = 'sun';
+
+      const month = document.createElement('span');
+      month.className = 'month';
+      month.textContent = (i === 0 || day.day === 1) ? day.month + '月' : '\u00a0';
+
+      const date = document.createElement('span');
+      date.className = 'date';
+      date.textContent = day.day;
+
+      const name = document.createElement('span');
+      name.textContent = '(' + day.dayName + ')';
+
+      th.appendChild(month);
+      th.appendChild(date);
+      th.appendChild(name);
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    // 本体（時間 × 日付）
+    const tbody = document.createElement('tbody');
+    data.times.forEach(function(time) {
+      const tr = document.createElement('tr');
+
+      const timeCell = document.createElement('td');
+      timeCell.className = 'time';
+      timeCell.textContent = time;
+      tr.appendChild(timeCell);
+
+      data.days.forEach(function(day) {
+        const td = document.createElement('td');
+        td.className = 'cell';
+
+        if (day.status !== 'open') {
+          td.className += ' off';                       // 定休日・過ぎた日・受付期間外
+        } else if (day.slots.indexOf(time) !== -1) {
+          td.appendChild(createSlotLink(day, time));    // 空いている → ○
+        } else {
+          td.className += ' full';                      // 埋まっている → ×
+          td.textContent = '×';
+        }
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    const area = document.getElementById('calendar');
+    area.innerHTML = '';
+    area.appendChild(table);
+
+    const hasSlot = data.days.some(function(day) { return day.slots.length > 0; });
+    if (!hasSlot) {
+      const msg = document.createElement('div');
+      msg.className = 'message';
+      msg.textContent = 'この週は空きがありません。「次の週」か「直近の空き」をお試しください。';
+      area.appendChild(msg);
+    }
+
+    setButtons(true);
+  }
+
+  // ○ のボタン（タップすると、日時をメッセージとして送って閉じる）
+  function createSlotLink(day, time) {
+    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + 'で予約';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '○';
+    button.className = 'slot';
+    button.addEventListener('click', function() { sendSelection(text); });
+    return button;
+  }
+
+  // 選んだ日時を、お客様の発言としてトークに送る
+  function sendSelection(text) {
+    if (sending) return;
+    sending = true;
+    document.querySelectorAll('button.slot').forEach(function(b) { b.disabled = true; });
+
+    liff.sendMessages([{ type: 'text', text: text }])
+      .then(function() {
+        liff.closeWindow();
+      })
+      .catch(function() {
+        sending = false;
+        document.querySelectorAll('button.slot').forEach(function(b) { b.disabled = false; });
+        alert('送信できませんでした。お手数ですが、もう一度お試しください。');
+      });
+  }
+
+  function showMessage(text, isError) {
+    const area = document.getElementById('calendar');
+    area.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.className = 'message' + (isError ? ' error' : '');
+    msg.textContent = text;
+    area.appendChild(msg);
+  }
+
+  function setButtons(enabled) {
+    document.getElementById('btn-first').disabled = !enabled;
+    document.getElementById('btn-prev').disabled = !enabled || !current || !current.prevWeek;
+    document.getElementById('btn-next').disabled = !enabled || !current || !current.nextWeek;
+  }
+
+  document.getElementById('btn-first').addEventListener('click', loadFirst);
+  document.getElementById('btn-prev').addEventListener('click', function() {
+    if (current && current.prevWeek) loadWeek(current.prevWeek);
+  });
+  document.getElementById('btn-next').addEventListener('click', function() {
+    if (current && current.nextWeek) loadWeek(current.nextWeek);
+  });
+
+  // LIFFの準備ができてから、週表を読み込む
   liff.init({ liffId: LIFF_ID })
     .then(function() {
       if (!liff.isInClient()) {
-        log('LINEアプリの中で開いてください。');
+        showMessage('このページは、LINEアプリから開いてください。', true);
         return;
       }
-      document.getElementById('send').disabled = false;
-      log('準備OK。ボタンを押してください。');
+      const params = new URLSearchParams(window.location.search);
+      CONFIG.menu = params.get('menu') || '';
+      if (!CONFIG.menu) {
+        showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
+        return;
+      }
+      loadWeek('');
     })
-    .catch(function(e) {
-      log('初期化エラー：' + e.message);
+    .catch(function() {
+      showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。', true);
     });
-
-  document.getElementById('send').addEventListener('click', function() {
-    liff.sendMessages([{ type: 'text', text: '10月14日（水）14:00で予約' }])
-      .then(function() { liff.closeWindow(); })
-      .catch(function(e) { log('送信エラー：' + e.message); });
-  });
 </script>
 </body>
 </html>
