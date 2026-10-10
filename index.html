@@ -107,39 +107,46 @@
     return fetch(CONFIG.dataUrl + '?' + query).then(function(res) { return res.json(); });
   }
 
-  // 週を読み込んで表示する
-  function loadWeek(start) {
-    showMessage('読み込み中です…');
-    setButtons(false);
+  // 全部の週（受付期間ぶん）を、最初に1回だけまとめて受け取る
+  let allData = null;
+  let weekIndex = 0;
 
-    fetchData({ action: 'slots', menu: CONFIG.menu, start: start || '' })
-      .then(function(data) {
-        if (data.error) throw new Error(data.error);
-        current = data;
-        render(data);
-      })
-      .catch(function() {
-        showMessage('空き状況を読み込めませんでした。時間をおいて、もう一度開いてください。', true);
-      });
+  function handleData(data) {
+    if (data.error || !data.weeks || data.weeks.length === 0) throw new Error(data.error || 'no data');
+    allData = data;
+    showWeek(0);
   }
 
-  // 一番近い空きがある週へ移動する
-  function loadFirst() {
-    showMessage('空きを探しています…');
-    setButtons(false);
+  // 指定した週を表示する（通信はしない）
+  function showWeek(index) {
+    weekIndex = index;
+    const week = allData.weeks[index];
+    current = {
+      menu: allData.menu,
+      duration: allData.duration,
+      times: allData.times,
+      days: week.days,
+      weeksFromNow: week.weeksFromNow,
+      prevWeek: index > 0,
+      nextWeek: index < allData.weeks.length - 1
+    };
+    render(current);
+  }
 
-    fetchData({ action: 'first', menu: CONFIG.menu })
-      .then(function(data) {
-        if (data.error) throw new Error(data.error);
-        if (!data.date) {
-          showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
-          return;
-        }
-        loadWeek(data.date);
-      })
-      .catch(function() {
-        showMessage('空き状況を読み込めませんでした。時間をおいて、もう一度開いてください。', true);
-      });
+  // 一番近い空きがある週へ移動する（通信はしない）
+  function showFirst() {
+    for (let i = 0; i < allData.weeks.length; i++) {
+      const hasSlot = allData.weeks[i].days.some(function(day) { return day.slots.length > 0; });
+      if (hasSlot) {
+        showWeek(i);
+        return;
+      }
+    }
+    showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
+  }
+
+  function showLoadError() {
+    showMessage('空き状況を読み込めませんでした。時間をおいて、もう一度開いてください。', true);
   }
 
   // 週表を組み立てる（文字はすべて textContent で入れる）
@@ -270,28 +277,41 @@
     document.getElementById('btn-next').disabled = !enabled || !current || !current.nextWeek;
   }
 
-  document.getElementById('btn-first').addEventListener('click', loadFirst);
+  document.getElementById('btn-first').addEventListener('click', function() {
+    if (allData) showFirst();
+  });
   document.getElementById('btn-prev').addEventListener('click', function() {
-    if (current && current.prevWeek) loadWeek(current.prevWeek);
+    if (allData && weekIndex > 0) showWeek(weekIndex - 1);
   });
   document.getElementById('btn-next').addEventListener('click', function() {
-    if (current && current.nextWeek) loadWeek(current.nextWeek);
+    if (allData && weekIndex < allData.weeks.length - 1) showWeek(weekIndex + 1);
   });
 
-  // LIFFの準備ができてから、週表を読み込む
+  // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
+  const firstParams = new URLSearchParams(window.location.search);
+  CONFIG.menu = firstParams.get('menu') || '';
+  setButtons(false);
+  let dataPromise = CONFIG.menu ? fetchData({ action: 'all', menu: CONFIG.menu }) : null;
+  if (dataPromise) dataPromise.catch(function() {});  // 失敗は下でまとめて扱う
+
   liff.init({ liffId: LIFF_ID })
     .then(function() {
       if (!liff.isInClient()) {
         showMessage('このページは、LINEアプリから開いてください。', true);
         return;
       }
-      const params = new URLSearchParams(window.location.search);
-      CONFIG.menu = params.get('menu') || '';
+
+      // 開き方によっては、準備のあとでメニューがわかる場合がある
       if (!CONFIG.menu) {
-        showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
-        return;
+        CONFIG.menu = new URLSearchParams(window.location.search).get('menu') || '';
+        if (!CONFIG.menu) {
+          showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
+          return;
+        }
+        dataPromise = fetchData({ action: 'all', menu: CONFIG.menu });
       }
-      loadWeek('');
+
+      return dataPromise.then(handleData).catch(showLoadError);
     })
     .catch(function() {
       showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。', true);
