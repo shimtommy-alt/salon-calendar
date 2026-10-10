@@ -1,1 +1,46 @@
-<p>テスト中です</p>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIFF検証</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js" charset="utf-8"></script>
+<style>
+  body { font-family: sans-serif; padding: 20px; }
+  button { font-size: 20px; padding: 16px; width: 100%; }
+  #log { margin-top: 16px; font-size: 14px; color: #555; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <h1 style="font-size:20px">LIFFの検証</h1>
+  <button id="send" disabled>10月14日（水）14:00で予約</button>
+  <div id="log">準備中…</div>
+
+<script>
+  const LIFF_ID = 'ここにLIFF IDを入れる';
+
+  function log(text) {
+    document.getElementById('log').textContent = text;
+  }
+
+  liff.init({ liffId: LIFF_ID })
+    .then(function() {
+      if (!liff.isInClient()) {
+        log('LINEアプリの中で開いてください。');
+        return;
+      }
+      document.getElementById('send').disabled = false;
+      log('準備OK。ボタンを押してください。');
+    })
+    .catch(function(e) {
+      log('初期化エラー：' + e.message);
+    });
+
+  document.getElementById('send').addEventListener('click', function() {
+    liff.sendMessages([{ type: 'text', text: '10月14日（水）14:00で予約' }])
+      .then(function() { liff.closeWindow(); })
+      .catch(function(e) { log('送信エラー：' + e.message); });
+  });
+</script>
+</body>
+</html>
