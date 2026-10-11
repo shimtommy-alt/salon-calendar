@@ -120,7 +120,8 @@
     tData = Math.round(performance.now() - T0);
     setTimeout(function() {
       document.getElementById('week-label').textContent +=
-        '　［準備 ' + tInit + 'ms／データ ' + tData + 'ms］';
+        '　［準備 ' + tInit + '／データ ' + tData +
+        '／中継→ボット ' + data.fetchMs + '／ボット計算 ' + data.computeMs + '］';
     }, 0);
 
     if (data.error || !data.weeks || data.weeks.length === 0) throw new Error(data.error || 'no data');
@@ -247,7 +248,7 @@
 
   // ○ のボタン（タップすると、日時をメッセージとして送って閉じる）
   function createSlotLink(day, time) {
-    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + 'で予約';
+    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + 'で予約（' + CONFIG.menu + '）';
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '○';
