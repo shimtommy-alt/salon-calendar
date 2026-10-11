@@ -42,6 +42,11 @@
     padding: 8px 10px; flex: 1;
   }
   .nav button:disabled { color: #C8C2BC; }
+  .back-menu {
+    display: block; width: 100%; margin-bottom: 8px;
+    font-size: 14px; color: var(--brown-light);
+    background: none; border: 1px dashed var(--line); border-radius: 6px; padding: 8px 10px;
+  }
   .week-label { font-size: 13px; color: var(--brown-light); margin-bottom: 8px; text-align: center; }
 
   /* 週表 */
@@ -84,6 +89,8 @@
     ご希望の日時の <strong>○</strong> をタップしてください。<br>
     LINEのトーク画面に、ご予約内容の確認が表示されます。
   </div>
+
+  <button id="btn-menu" class="back-menu">← メニューを選び直す</button>
 
   <div class="nav">
     <button id="btn-first">直近の空き</button>
@@ -324,11 +331,11 @@
     return button;
   }
 
-  // 選んだ日時を、お客様の発言としてトークに送る
+  // 選んだ日時（または「メニューを選び直す」）を、お客様の発言としてトークに送って閉じる
   function sendSelection(text) {
     if (sending) return;
     sending = true;
-    document.querySelectorAll('button.slot').forEach(function(b) { b.disabled = true; });
+    setSending(true);
 
     liff.sendMessages([{ type: 'text', text: text }])
       .then(function() {
@@ -336,9 +343,15 @@
       })
       .catch(function() {
         sending = false;
-        document.querySelectorAll('button.slot').forEach(function(b) { b.disabled = false; });
+        setSending(false);
         alert('送信できませんでした。お手数ですが、もう一度お試しください。');
       });
+  }
+
+  // 送信中は、○ と「メニューを選び直す」を押せなくする（連打を防ぐ）
+  function setSending(on) {
+    document.querySelectorAll('button.slot').forEach(function(b) { b.disabled = on; });
+    document.getElementById('btn-menu').disabled = on;
   }
 
   function showMessage(text, isError) {
@@ -356,6 +369,9 @@
     document.getElementById('btn-next').disabled = !enabled || !current || !current.nextWeek;
   }
 
+  document.getElementById('btn-menu').addEventListener('click', function() {
+    sendSelection('メニューを選び直す');
+  });
   document.getElementById('btn-first').addEventListener('click', function() {
     if (allData) showFirst();
   });
@@ -375,6 +391,9 @@
     CONFIG.menu = params.get('menu') || '';
     CONFIG.exclude = params.get('exclude') || '';
     CONFIG.mode = params.get('mode') || '';
+
+    // 日時変更のときは、メニューは変更の対象ではないので「メニューを選び直す」を出さない
+    document.getElementById('btn-menu').style.display = CONFIG.mode ? 'none' : 'block';
 
     if (CONFIG.mode) {
       document.querySelector('h1').textContent = '変更先の日時をお選びください';
