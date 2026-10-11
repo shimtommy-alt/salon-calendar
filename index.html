@@ -67,6 +67,11 @@
   }
   td.cell button:disabled { color: #C8C2BC; }
 
+  /* 読み込み中の枠 */
+  td.cell.loading, td.time.loading { animation: blink 1.2s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  .loading-text { text-align: center; font-size: 13px; color: var(--brown-light); margin: 8px 0; }
+
   .message { text-align: center; font-size: 14px; color: var(--brown-light); padding: 24px 0; }
   .error { color: var(--sun-text); }
 </style>
@@ -87,7 +92,7 @@
   </div>
   <div class="week-label" id="week-label"></div>
 
-  <div id="calendar"><div class="message">読み込み中です…</div></div>
+  <div id="calendar"></div>
 
 <script>
   // ===== 設定（ご自身の値に書き換えてください） =====
@@ -151,6 +156,70 @@
       }
     }
     showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
+  }
+
+  // 読み込みを待つ間、今週の日付と表の枠だけを先に出しておく
+  function renderSkeleton() {
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    const corner = document.createElement('th');
+    corner.className = 'time-head';
+    headRow.appendChild(corner);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+
+      const th = document.createElement('th');
+      if (date.getDay() === 6) th.className = 'sat';
+      if (date.getDay() === 0) th.className = 'sun';
+
+      const month = document.createElement('span');
+      month.className = 'month';
+      month.textContent = (i === 0 || date.getDate() === 1) ? (date.getMonth() + 1) + '月' : '\u00a0';
+      const day = document.createElement('span');
+      day.className = 'date';
+      day.textContent = date.getDate();
+      const name = document.createElement('span');
+      name.textContent = '(' + dayNames[date.getDay()] + ')';
+
+      th.appendChild(month);
+      th.appendChild(day);
+      th.appendChild(name);
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (let r = 0; r < 8; r++) {
+      const tr = document.createElement('tr');
+      const timeCell = document.createElement('td');
+      timeCell.className = 'time loading';
+      tr.appendChild(timeCell);
+      for (let c = 0; c < 7; c++) {
+        const td = document.createElement('td');
+        td.className = 'cell loading';
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+
+    const area = document.getElementById('calendar');
+    area.innerHTML = '';
+    const text = document.createElement('div');
+    text.className = 'loading-text';
+    text.textContent = '空き状況を読み込んでいます…';
+    area.appendChild(text);
+    area.appendChild(table);
+    document.getElementById('week-label').textContent = '今週';
   }
 
   function showLoadError() {
@@ -296,6 +365,8 @@
   });
 
   // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
+  renderSkeleton();
+
   const firstParams = new URLSearchParams(window.location.search);
   CONFIG.menu = firstParams.get('menu') || '';
   setButtons(false);
