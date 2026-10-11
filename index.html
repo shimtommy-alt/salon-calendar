@@ -321,8 +321,8 @@
 
       return dataPromise.then(handleData).catch(showLoadError);
     })
-    .catch(function() {
-      showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。', true);
+    .catch(function(e) {
+      showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）', true);
     });
 </script>
 </body>
