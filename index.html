@@ -90,6 +90,10 @@
   <div id="calendar"><div class="message">読み込み中です…</div></div>
 
 <script>
+  // 【計測用】表示までの時間を測る（確認が終わったら消す）
+  const T0 = performance.now();
+  let tInit = 0, tData = 0;
+
   // ===== 設定（ご自身の値に書き換えてください） =====
   const LIFF_ID = '2011965863-h9A4Rz8Z';
   const DATA_URL = 'https://script.google.com/macros/s/AKfycbyuVKo6RCwCuETofXzFDmtFyE5ktiLTxY483Kvo3Kdwyhr3koagpDlzKO2zi0AvMMWGng/exec';
@@ -112,6 +116,13 @@
   let weekIndex = 0;
 
   function handleData(data) {
+    // 【計測用】
+    tData = Math.round(performance.now() - T0);
+    setTimeout(function() {
+      document.getElementById('week-label').textContent +=
+        '　［準備 ' + tInit + 'ms／データ ' + tData + 'ms］';
+    }, 0);
+
     if (data.error || !data.weeks || data.weeks.length === 0) throw new Error(data.error || 'no data');
     allData = data;
     showWeek(0);
@@ -296,6 +307,7 @@
 
   liff.init({ liffId: LIFF_ID })
     .then(function() {
+      tInit = Math.round(performance.now() - T0);  // 【計測用】
       if (!liff.isInClient()) {
         showMessage('このページは、LINEアプリから開いてください。', true);
         return;
