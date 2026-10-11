@@ -100,7 +100,8 @@
   const DATA_URL = 'https://script.google.com/macros/s/AKfycbyuVKo6RCwCuETofXzFDmtFyE5ktiLTxY483Kvo3Kdwyhr3koagpDlzKO2zi0AvMMWGng/exec';
   // ==================================================
 
-  const CONFIG = { menu: '', dataUrl: DATA_URL };
+  // menu：メニュー / exclude・mode：日時変更のとき（変更する予約の行番号と、変更の種類）
+  const CONFIG = { menu: '', exclude: '', mode: '', dataUrl: DATA_URL };
   let current = null;   // 今表示している週のデータ
   let sending = false;  // 送信中（連打を防ぐ）
 
@@ -313,7 +314,8 @@
 
   // ○ のボタン（タップすると、日時をメッセージとして送って閉じる）
   function createSlotLink(day, time) {
-    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + 'で予約（' + CONFIG.menu + '）';
+    const verb = CONFIG.mode ? 'に変更' : 'で予約';
+    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + verb + '（' + CONFIG.menu + '）';
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '○';
@@ -367,10 +369,26 @@
   // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
   renderSkeleton();
 
-  const firstParams = new URLSearchParams(window.location.search);
-  CONFIG.menu = firstParams.get('menu') || '';
+  // URLから、メニューと（日時変更のときは）変更の情報を読み取る
+  function readParams() {
+    const params = new URLSearchParams(window.location.search);
+    CONFIG.menu = params.get('menu') || '';
+    CONFIG.exclude = params.get('exclude') || '';
+    CONFIG.mode = params.get('mode') || '';
+
+    if (CONFIG.mode) {
+      document.querySelector('h1').textContent = '変更先の日時をお選びください';
+      document.querySelector('.note').textContent = '変更先の日時の ○ をタップすると、その日時に変更されます。';
+    }
+  }
+
+  function requestAll() {
+    return fetchData({ action: 'all', menu: CONFIG.menu, exclude: CONFIG.exclude, mode: CONFIG.mode });
+  }
+
+  readParams();
   setButtons(false);
-  let dataPromise = CONFIG.menu ? fetchData({ action: 'all', menu: CONFIG.menu }) : null;
+  let dataPromise = CONFIG.menu ? requestAll() : null;
   if (dataPromise) dataPromise.catch(function() {});  // 失敗は下でまとめて扱う
 
   liff.init({ liffId: LIFF_ID })
@@ -382,12 +400,12 @@
 
       // 開き方によっては、準備のあとでメニューがわかる場合がある
       if (!CONFIG.menu) {
-        CONFIG.menu = new URLSearchParams(window.location.search).get('menu') || '';
+        readParams();
         if (!CONFIG.menu) {
           showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
           return;
         }
-        dataPromise = fetchData({ action: 'all', menu: CONFIG.menu });
+        dataPromise = requestAll();
       }
 
       return dataPromise.then(handleData).catch(showLoadError);
