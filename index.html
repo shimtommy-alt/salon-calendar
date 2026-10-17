@@ -104,7 +104,7 @@
 <script>
   // ===== 設定（ご自身の値に書き換えてください） =====
   const LIFF_ID = '2011965863-h9A4Rz8Z';
-  const DATA_URL = 'https://script.google.com/macros/s/AKfycbxPi1f04WbnDZAbaBQhvt5LyYx5Rarp-BwvVDLY5-x6NMEr5Yx9owCyHKcvRB03JBst/exec';
+  const DATA_URL = 'https://script.google.com/macros/s/AKfycbyuVKo6RCwCuETofXzFDmtFyE5ktiLTxY483Kvo3Kdwyhr3koagpDlzKO2zi0AvMMWGng/exec';
   // ==================================================
 
   // menu：メニュー / exclude・mode：日時変更のとき（変更する予約の行番号と、変更の種類）
@@ -321,7 +321,7 @@
 
   // ○ のボタン（タップすると、日時をメッセージとして送って閉じる）
   function createSlotLink(day, time) {
-    const verb = CONFIG.mode ? 'に変更' : 'で予約';
+    const verb = isChangeMode() ? 'に変更' : 'で予約';
     const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + verb + '（' + CONFIG.menu + '）';
     const button = document.createElement('button');
     button.type = 'button';
@@ -385,6 +385,12 @@
   // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
   renderSkeleton();
 
+  // 日時変更か（change：お客様の変更 / achange：管理者の変更）
+  // proxy（管理者の代理予約）は新しい予約なので、変更には含めない
+  function isChangeMode() {
+    return CONFIG.mode === 'change' || CONFIG.mode === 'achange';
+  }
+
   // URLから、メニューと（日時変更のときは）変更の情報を読み取る
   function readParams() {
     const params = new URLSearchParams(window.location.search);
@@ -393,9 +399,9 @@
     CONFIG.mode = params.get('mode') || '';
 
     // 日時変更のときは、メニューは変更の対象ではないので「メニューを選び直す」を出さない
-    document.getElementById('btn-menu').style.display = CONFIG.mode ? 'none' : 'block';
+    document.getElementById('btn-menu').style.display = isChangeMode() ? 'none' : 'block';
 
-    if (CONFIG.mode) {
+    if (isChangeMode()) {
       document.querySelector('h1').textContent = '変更先の日時をお選びください';
       document.querySelector('.note').textContent = '変更先の日時の ○ をタップすると、その日時に変更されます。';
     }
