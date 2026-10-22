@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -320,9 +321,12 @@
   }
 
   // ○ のボタン（タップすると、日時をメッセージとして送って閉じる）
+  // 管理者の日時変更（achange）は、どの予約のカレンダーかを、文の最後に「［行番号］」で付ける
+  // （ボットが、今選んでいる予約と同じか確かめる。古いカレンダーで、別の予約を変えないように）
   function createSlotLink(day, time) {
     const verb = isChangeMode() ? 'に変更' : 'で予約';
-    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + verb + '（' + CONFIG.menu + '）';
+    const mark = (CONFIG.mode === 'achange' && /^\d+$/.test(CONFIG.exclude)) ? '［' + CONFIG.exclude + '］' : '';
+    const text = day.month + '月' + day.day + '日（' + day.dayName + '）' + time + verb + '（' + CONFIG.menu + '）' + mark;
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '○';
