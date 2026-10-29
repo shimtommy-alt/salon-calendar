@@ -80,9 +80,32 @@
 
   .message { text-align: center; font-size: 14px; color: var(--brown-light); padding: 24px 0; }
   .error { color: var(--sun-text); }
+
+  /* お名前・電話番号の入力画面（page=form） */
+  [hidden] { display: none !important; }   /* 下の display の指定があっても、hidden の部品は出さない */
+  .form-note {
+    font-size: 13px; line-height: 1.6;
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 16px;
+  }
+  .field { display: block; margin-bottom: 16px; }
+  .field .label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+  .field input {
+    width: 100%; font-size: 16px; font-family: inherit; color: var(--brown);   /* 16px より小さいと、iPhone で画面が拡大される */
+    background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+  }
+  .hint { display: block; font-size: 12px; line-height: 1.5; color: var(--brown-light); margin-top: 6px; }
+  .form-error { font-size: 13px; line-height: 1.5; color: var(--sun-text); min-height: 20px; margin-bottom: 8px; white-space: pre-line; }
+  .send {
+    display: block; width: 100%; font-size: 16px; font-weight: bold; font-family: inherit; color: #fff;
+    background: #C47F68; border: none; border-radius: 22px; padding: 12px;   /* ボットの「予約を確定する」と同じ色 */
+  }
+  .send:disabled { opacity: 0.5; }
 </style>
 </head>
 <body>
+  <!-- 空き状況カレンダー（ふだんはこちら） -->
+  <div id="calendar-page">
   <h1>ご希望の日時をお選びください</h1>
   <div class="menu" id="menu"></div>
 
@@ -101,6 +124,30 @@
   <div class="week-label" id="week-label"></div>
 
   <div id="calendar"></div>
+  </div>
+
+  <!-- お名前・電話番号の入力画面（page=form で開いたときだけ出す） -->
+  <div id="form-page" hidden>
+    <h1>お名前・お電話番号の入力</h1>
+    <div class="form-note">ご予約の確認のため、ご来店時のお名前と、お電話番号を入力してください。</div>
+
+    <div id="form-body" hidden>
+      <label class="field">
+        <span class="label">お名前（フルネーム）</span>
+        <input id="input-name" type="text" maxlength="20" autocomplete="name" placeholder="（例）山田 花子">
+      </label>
+      <label class="field">
+        <span class="label">お電話番号</span>
+        <input id="input-phone" type="tel" autocomplete="tel" placeholder="（例）090-1234-5678">
+        <span class="hint">急なご連絡が必要な際に使用いたします。ハイフンなしでも大丈夫です。</span>
+      </label>
+      <div class="hint" id="demo-note" hidden>※デモのため、電話番号は保存されません。空欄でも進めます。</div>
+      <div class="form-error" id="form-error"></div>
+      <button id="btn-send" class="send" type="button">次へ</button>
+    </div>
+
+    <div class="message" id="form-message">読み込んでいます…</div>
+  </div>
 
 <script>
   // ===== 設定（ご自身の値に書き換えてください） =====
@@ -386,9 +433,6 @@
     if (allData && weekIndex < allData.weeks.length - 1) showWeek(weekIndex + 1);
   });
 
-  // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
-  renderSkeleton();
-
   // 日時変更か（change：お客様の変更 / achange：管理者の変更）
   // proxy（管理者の代理予約）は新しい予約なので、変更には含めない
   function isChangeMode() {
@@ -415,33 +459,138 @@
     return fetchData({ action: 'all', menu: CONFIG.menu, exclude: CONFIG.exclude, mode: CONFIG.mode });
   }
 
-  readParams();
-  setButtons(false);
-  let dataPromise = CONFIG.menu ? requestAll() : null;
-  if (dataPromise) dataPromise.catch(function() {});  // 失敗は下でまとめて扱う
+  // カレンダーを始める
+  // 待ち時間を減らすため、LIFFの準備と空き状況の読み込みを同時に始める
+  function startCalendar() {
+    renderSkeleton();
+    readParams();
+    setButtons(false);
+    let dataPromise = CONFIG.menu ? requestAll() : null;
+    if (dataPromise) dataPromise.catch(function() {});  // 失敗は下でまとめて扱う
 
-  liff.init({ liffId: LIFF_ID })
-    .then(function() {
-      if (!liff.isInClient()) {
-        showMessage('このページは、LINEアプリから開いてください。', true);
-        return;
-      }
-
-      // 開き方によっては、準備のあとでメニューがわかる場合がある
-      if (!CONFIG.menu) {
-        readParams();
-        if (!CONFIG.menu) {
-          showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
+    liff.init({ liffId: LIFF_ID })
+      .then(function() {
+        if (!liff.isInClient()) {
+          showMessage('このページは、LINEアプリから開いてください。', true);
           return;
         }
-        dataPromise = requestAll();
-      }
 
-      return dataPromise.then(handleData).catch(showLoadError);
-    })
-    .catch(function(e) {
-      showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）', true);
-    });
+        // 開き方によっては、準備のあとでメニューがわかる場合がある
+        if (!CONFIG.menu) {
+          readParams();
+          if (!CONFIG.menu) {
+            showMessage('メニューが選ばれていません。LINEのトーク画面から開き直してください。', true);
+            return;
+          }
+          dataPromise = requestAll();
+        }
+
+        return dataPromise.then(handleData).catch(showLoadError);
+      })
+      .catch(function(e) {
+        showMessage('カレンダーを開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）', true);
+      });
+  }
+
+  // ===== お名前・電話番号の入力画面（page=form） =====
+  // 「予約」と送ったあとのカードから開く。入力した内容を、お客様の発言としてトークに送って閉じる
+  // 受け付けるか・電話番号を保存するかは、ボットの側で決める（ここでのチェックは、入力の間違いに早く気づいてもらうため）
+
+  // 電話番号を空欄で送るときの文字（デモだけ。ボットの側の booking.gs の PROFILE_NO_PHONE と同じ）
+  const PROFILE_NO_PHONE = '（入力なし）';
+
+  // URLの値を読む
+  // LINEのトーク画面から開いた直後は、値が「liff.state」の中に入っていることがある（例：liff.state=?page=form）
+  function getStartParam(name) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(name) !== null) return params.get(name);
+
+    const state = params.get('liff.state');
+    if (!state) return '';
+    return new URLSearchParams(state.slice(state.indexOf('?') + 1)).get(name) || '';
+  }
+
+  function startForm() {
+    document.title = 'お名前・お電話番号の入力';
+    document.getElementById('calendar-page').hidden = true;
+    document.getElementById('form-page').hidden = false;
+
+    // デモの案内（表示だけに使う。電話番号を保存しないかは、ボットの側の isDemoMode で決める）
+    const isDemo = getStartParam('demo') === '1';
+    document.getElementById('demo-note').hidden = !isDemo;
+
+    // LIFFの準備ができてから、入力の欄を出す（準備の途中でページが開き直されても、入力が消えないように）
+    liff.init({ liffId: LIFF_ID })
+      .then(function() {
+        if (!liff.isInClient()) {
+          showFormMessage('このページは、LINEアプリから開いてください。');
+          return;
+        }
+        document.getElementById('form-message').hidden = true;
+        document.getElementById('form-body').hidden = false;
+        document.getElementById('btn-send').addEventListener('click', function() { sendForm(isDemo); });
+      })
+      .catch(function(e) {
+        showFormMessage('入力画面を開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）');
+      });
+  }
+
+  function showFormMessage(text) {
+    const msg = document.getElementById('form-message');
+    msg.className = 'message error';
+    msg.textContent = text;
+    msg.hidden = false;
+  }
+
+  // 入力の簡単なチェック（くわしいチェックは、ボットの側で行う：utils.gs の getNameProblem・normalizePhone）
+  // ボットより厳しくしない（ボットが受け付ける番号を、ここで止めない）
+  function getFormProblem(name, phone, isDemo) {
+    if (name === '') return 'お名前を入力してください。';
+    if (name.length > 20) return 'お名前は20文字以内で入力してください。';
+    if (/^[=+\-@]/.test(name)) return 'お名前の先頭に「=」「+」「-」「@」は使えません。';
+
+    if (phone === '') return isDemo ? '' : 'お電話番号を入力してください。';
+    const digits = phone.replace(/[^0-9０-９]/g, '');
+    const international = /^[+＋]/.test(phone);  // +81 から始まる番号（ボットの側で、0 から始まる番号に直す）
+    if (digits.length < 10 || (!international && digits.length > 11)) {
+      return 'お電話番号が正しくないようです。\n携帯電話は11桁、固定電話は市外局番から10桁で入力してください。';
+    }
+    return '';
+  }
+
+  // 「次へ」：チェックして、ボットが読み取る形の文を送って閉じる
+  // 形：1行目「お名前：（お名前）」、2行目「電話番号：（電話番号）」（ボットの側の booking.gs の parseProfileText と同じ）
+  function sendForm(isDemo) {
+    if (sending) return;
+
+    const name = document.getElementById('input-name').value.trim();
+    const phone = document.getElementById('input-phone').value.trim();
+    const problem = getFormProblem(name, phone, isDemo);
+    document.getElementById('form-error').textContent = problem;
+    if (problem) return;
+
+    const button = document.getElementById('btn-send');
+    sending = true;
+    button.disabled = true;
+
+    const text = 'お名前：' + name + '\n電話番号：' + (phone || PROFILE_NO_PHONE);
+    liff.sendMessages([{ type: 'text', text: text }])
+      .then(function() {
+        liff.closeWindow();
+      })
+      .catch(function() {
+        sending = false;
+        button.disabled = false;
+        alert('送信できませんでした。お手数ですが、もう一度お試しください。');
+      });
+  }
+
+  // 開いたページを決める：page=form なら入力画面、それ以外はカレンダー
+  if (getStartParam('page') === 'form') {
+    startForm();
+  } else {
+    startCalendar();
+  }
 </script>
 </body>
 </html>
