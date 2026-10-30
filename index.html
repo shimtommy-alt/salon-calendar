@@ -196,10 +196,17 @@
       times: allData.times,
       days: week.days,
       weeksFromNow: week.weeksFromNow,
+      startToday: !!allData.startToday,   // 今日から始まる表か（ボットの「設定」シートの「カレンダーの始まり」）
       prevWeek: index > 0,
       nextWeek: index < allData.weeks.length - 1
     };
     render(current);
+  }
+
+  // 週の見出し：1週目は「今週」（今日から始まる表では「今日から1週間」）、2週目からは「今日から ○ 週間後」
+  function getWeekLabel(weeksFromNow, startToday) {
+    if (weeksFromNow === 0) return startToday ? '今日から1週間' : '今週';
+    return '今日から ' + weeksFromNow + ' 週間後';
   }
 
   // 一番近い空きがある週へ移動する（通信はしない）
@@ -214,12 +221,15 @@
     showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
   }
 
-  // 読み込みを待つ間、今週の日付と表の枠だけを先に出しておく
+  // 読み込みを待つ間、1週目の日付と表の枠だけを先に出しておく
+  // 1週目の1日目：URL に start=today があれば今日、なければ今週の月曜日
+  // （ボットの「設定」シートの「カレンダーの始まり」が今日のとき、ボットが start=today を付ける：flex.gs の getCalendarUrl）
   function renderSkeleton() {
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const startToday = getStartParam('start') === 'today';
     const today = new Date();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    const first = new Date(today);
+    if (!startToday) first.setDate(today.getDate() - ((today.getDay() + 6) % 7));  // 今週の月曜日
 
     const table = document.createElement('table');
     const thead = document.createElement('thead');
@@ -229,8 +239,8 @@
     headRow.appendChild(corner);
 
     for (let i = 0; i < 7; i++) {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + i);
+      const date = new Date(first);
+      date.setDate(first.getDate() + i);
 
       const th = document.createElement('th');
       if (date.getDay() === 6) th.className = 'sat';
@@ -275,7 +285,7 @@
     text.textContent = '空き状況を読み込んでいます…';
     area.appendChild(text);
     area.appendChild(table);
-    document.getElementById('week-label').textContent = '今週';
+    document.getElementById('week-label').textContent = getWeekLabel(0, startToday);
   }
 
   function showLoadError() {
@@ -287,8 +297,7 @@
     document.getElementById('menu').textContent =
       'メニュー：' + data.menu + '（' + data.duration + '分）';
 
-    document.getElementById('week-label').textContent =
-      data.weeksFromNow === 0 ? '今週' : '今日から ' + data.weeksFromNow + ' 週間後';
+    document.getElementById('week-label').textContent = getWeekLabel(data.weeksFromNow, data.startToday);
 
     const table = document.createElement('table');
 
@@ -499,7 +508,7 @@
   // 電話番号を空欄で送るときの文字（デモだけ。ボットの側の booking.gs の PROFILE_NO_PHONE と同じ）
   const PROFILE_NO_PHONE = '（入力なし）';
 
-  // URLの値を読む
+  // URLの値を読む（入力画面の page・demo と、カレンダーの start で使う）
   // LINEのトーク画面から開いた直後は、値が「liff.state」の中に入っていることがある（例：liff.state=?page=form）
   function getStartParam(name) {
     const params = new URLSearchParams(window.location.search);
