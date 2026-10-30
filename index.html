@@ -60,7 +60,7 @@
   thead th .month { display: block; font-size: 11px; color: var(--brown-light); }
   thead th .date { display: block; font-size: 16px; font-weight: bold; }
   thead th.sat { background: var(--sat); color: var(--sat-text); }
-  thead th.sun { background: var(--sun); color: var(--sun-text); }
+  thead th.sun { background: var(--sun); color: var(--sun-text); }   /* 日曜日と祝日 */
   th.time-head { width: 50px; }
   td.time { font-size: 12px; font-weight: bold; background: var(--gray); border-radius: 4px; height: 44px; }
   td.cell { background: #fff; border-radius: 4px; height: 44px; }
@@ -221,6 +221,54 @@
     showMessage('申し訳ありません。現在、ご案内できる空きがありません。');
   }
 
+  // ===== 祝日（見出しを、日曜日と同じ赤にする） =====
+  // 「国民の祝日に関する法律」の今の決まりで、この画面の中で計算する（ボットの側からは、祝日を受け取らない）
+  // ※法律が変わったときや、特別な祝日（2019年の即位の日、2020・2021年のオリンピックでの移動など）ができたときは、ここを直す
+
+  // 祝日か（法律で決まった16の祝日のほか、振替休日・国民の休日も含める）
+  // year・month・day：年・月（1〜12）・日
+  function isJapaneseHoliday(year, month, day) {
+    if (isNationalHoliday(new Date(year, month - 1, day))) return true;
+
+    // 振替休日：祝日が日曜日のときは、そのあとの、祝日でない最初の日を休みにする（例：2026年5月6日）
+    // 前の日から、祝日が続くあいださかのぼる。途中に日曜日の祝日があれば、この日は振替休日
+    const before = new Date(year, month - 1, day - 1);
+    while (isNationalHoliday(before)) {
+      if (before.getDay() === 0) return true;
+      before.setDate(before.getDate() - 1);
+    }
+
+    // 国民の休日：前の日と次の日が、どちらも祝日の日も休みにする（例：2026年9月22日）
+    return isNationalHoliday(new Date(year, month - 1, day - 1)) &&
+      isNationalHoliday(new Date(year, month - 1, day + 1));
+  }
+
+  // 法律で決まった16の祝日か（振替休日・国民の休日は含めない）
+  // 春分の日・秋分の日は、毎年2月に国立天文台が翌年の日を発表する。ここでは、よく使われる計算式で出す（2099年まで）
+  function isNationalHoliday(date) {
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    const monday = date.getDay() === 1 ? Math.ceil(d / 7) : 0;  // 第何月曜日か（月曜日でなければ 0）
+    const spring = Math.floor(20.8431 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));  // 春分の日（3月の何日か）
+    const autumn = Math.floor(23.2488 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));  // 秋分の日（9月の何日か）
+
+    return (m === 1 && d === 1) ||        // 元日
+      (m === 1 && monday === 2) ||        // 成人の日（第2月曜日）
+      (m === 2 && d === 11) ||            // 建国記念の日
+      (m === 2 && d === 23) ||            // 天皇誕生日
+      (m === 3 && d === spring) ||        // 春分の日
+      (m === 4 && d === 29) ||            // 昭和の日
+      (m === 5 && d >= 3 && d <= 5) ||    // 憲法記念日・みどりの日・こどもの日
+      (m === 7 && monday === 3) ||        // 海の日（第3月曜日）
+      (m === 8 && d === 11) ||            // 山の日
+      (m === 9 && monday === 3) ||        // 敬老の日（第3月曜日）
+      (m === 9 && d === autumn) ||        // 秋分の日
+      (m === 10 && monday === 2) ||       // スポーツの日（第2月曜日）
+      (m === 11 && d === 3) ||            // 文化の日
+      (m === 11 && d === 23);             // 勤労感謝の日
+  }
+
   // 読み込みを待つ間、1週目の日付と表の枠だけを先に出しておく
   // 1週目の1日目：URL に start=today があれば今日、なければ今週の月曜日
   // （ボットの「設定」シートの「カレンダーの始まり」が今日のとき、ボットが start=today を付ける：flex.gs の getCalendarUrl）
@@ -243,8 +291,9 @@
       date.setDate(first.getDate() + i);
 
       const th = document.createElement('th');
+      const holiday = isJapaneseHoliday(date.getFullYear(), date.getMonth() + 1, date.getDate());
       if (date.getDay() === 6) th.className = 'sat';
-      if (date.getDay() === 0) th.className = 'sun';
+      if (date.getDay() === 0 || holiday) th.className = 'sun';  // 祝日も、日曜日と同じ赤（土曜日の祝日も赤）
 
       const month = document.createElement('span');
       month.className = 'month';
@@ -310,8 +359,9 @@
 
     data.days.forEach(function(day, i) {
       const th = document.createElement('th');
+      const holiday = isJapaneseHoliday(Number(day.date.slice(0, 4)), day.month, day.day);  // day.date は「2026-11-03」の形
       if (day.weekday === 6) th.className = 'sat';
-      if (day.weekday === 0) th.className = 'sun';
+      if (day.weekday === 0 || holiday) th.className = 'sun';  // 祝日も、日曜日と同じ赤（土曜日の祝日も赤）
 
       const month = document.createElement('span');
       month.className = 'month';
