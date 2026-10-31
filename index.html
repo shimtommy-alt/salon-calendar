@@ -95,6 +95,8 @@
     background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 10px;
   }
   .hint { display: block; font-size: 12px; line-height: 1.5; color: var(--brown-light); margin-top: 6px; }
+  .policy { margin: 0 0 8px; }                                   /* プライバシーポリシーの一文（「次へ」の上） */
+  .policy a { color: var(--brown); text-decoration: underline; }
   .form-error { font-size: 13px; line-height: 1.5; color: var(--sun-text); min-height: 20px; margin-bottom: 8px; white-space: pre-line; }
   .send {
     display: block; width: 100%; font-size: 16px; font-weight: bold; font-family: inherit; color: #fff;
@@ -142,6 +144,8 @@
         <span class="hint">急なご連絡が必要な際に使用いたします。ハイフンなしでも大丈夫です。</span>
       </label>
       <div class="hint" id="demo-note" hidden>※デモのため、電話番号は保存されません。空欄でも進めます。</div>
+      <!-- プライバシーポリシー（ボットの「設定」シートにアドレスがあるときだけ、受け取ってから出す） -->
+      <div class="hint policy" id="policy-note" hidden>ご入力いただいた内容の取り扱いは、<a href="#" id="policy-link">プライバシーポリシー</a>をご覧ください。</div>
       <div class="form-error" id="form-error"></div>
       <button id="btn-send" class="send" type="button">次へ</button>
     </div>
@@ -578,6 +582,9 @@
     const isDemo = getStartParam('demo') === '1';
     document.getElementById('demo-note').hidden = !isDemo;
 
+    // プライバシーポリシーのアドレスを、ボットの窓口から受け取る（LIFFの準備と同時に始め、入力の欄は返事を待たずに出す）
+    loadPolicyLink();
+
     // LIFFの準備ができてから、入力の欄を出す（準備の途中でページが開き直されても、入力が消えないように）
     liff.init({ liffId: LIFF_ID })
       .then(function() {
@@ -591,6 +598,28 @@
       })
       .catch(function(e) {
         showFormMessage('入力画面を開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）');
+      });
+  }
+
+  // プライバシーポリシーのリンク：ボットの「設定」シートのアドレスを受け取り、届いたら「次へ」の上に一文を出す（liff.gs の action=form）
+  // ・https:// で始まるアドレスのときだけ出す（空欄・古いボットで受け取れないとき・通信に失敗したときは、出さないだけ。入力はできる）
+  // ・押したら、入力画面から移らずに別の画面で開く（liff.openWindow。入力した文字を消さないため）
+  function loadPolicyLink() {
+    fetchData({ action: 'form' })
+      .then(function(data) {
+        const url = data && typeof data.privacyUrl === 'string' ? data.privacyUrl : '';
+        if (!/^https:\/\//.test(url)) return;
+
+        const link = document.getElementById('policy-link');
+        link.href = url;
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          liff.openWindow({ url: url, external: false });
+        });
+        document.getElementById('policy-note').hidden = false;
+      })
+      .catch(function() {
+        // 受け取れなかったときは、リンクを出さない（トークの「予約」のカードには、リンクがある）
       });
   }
 
