@@ -873,9 +873,11 @@
     return problems;
   }
 
-  // 「次へ」：確かめて、ボットが読み取る形の文（4行）を送って閉じる
+  // 「次へ」：確かめて、ボットが読み取る形の文（4行）を送り、閉じずに、この画面のままカレンダーに切り替える（2026-11-23）
   // 形：1行目「【代理予約】」、2行目「お名前：（お名前）」、3行目「電話番号：（電話番号）」、4行目「メニュー：（メニューを「、」でつなぐ）」
   //   （ボットの側の admin.gs の parseProxyFormText と同じ。電話番号は入力どおりに送り、数字だけにそろえるのはボットの側）
+  // 前は送ったら閉じていたので、ボットが返す「カレンダーを開く」カードを、もう1回押す必要があった
+  // ボットの返信（「選択中：…」とカレンダーのカード）は今までどおりトークに届く。カレンダーを閉じてしまったときは、そのカードから開き直せる
   function sendProxyForm() {
     if (sending || !proxyMax) return;  // 送っている途中・メニューがまだ届いていないときは何もしない
 
@@ -893,13 +895,35 @@
     const text = PROXY_TITLE + '\nお名前：' + name + '\n電話番号：' + phone + '\nメニュー：' + menus.join('、');
     liff.sendMessages([{ type: 'text', text: text }])
       .then(function() {
-        liff.closeWindow();
+        openProxyCalendar(menus.join('、'));
       })
       .catch(function() {
         sending = false;
         button.disabled = false;
         alert('送信できませんでした。お手数ですが、もう一度お試しください。');
       });
+  }
+
+  // 代理予約の入力画面から、そのまま代理予約のカレンダーへ（2026-11-23）
+  // ボットのカードから開いたとき（menu=…&mode=proxy）と同じカレンダーを、URL を読み直さずに始める
+  // ・LIFF の準備は入力画面で済んでいるので、もう一度 liff.init は呼ばない。空き状況の読み込み（action=all）だけ行う
+  // ・○ を押したあとは、カードから開いたときと同じ（日時を送って閉じる → ボットが確認画面を返す）
+  // ・読み込み中の仮の表の始まりは、入力画面の URL の start=today で決まる（ボットの側の flex.gs の getProxyFormUrl が付ける）
+  function openProxyCalendar(menuText) {
+    CONFIG.menu = menuText;
+    CONFIG.exclude = '';
+    CONFIG.mode = 'proxy';
+    sending = false;  // 入力画面で送ったときの印を戻す（カレンダーの ○ を押せるように）
+
+    document.title = '空き状況カレンダー';
+    document.getElementById('proxy-page').hidden = true;
+    document.getElementById('calendar-page').hidden = false;
+    document.getElementById('btn-menu').style.display = 'block';  // 代理予約は新しい予約なので「メニューを選び直す」を出す（カードから開いたときと同じ）
+    if (window.scrollTo) window.scrollTo(0, 0);  // 「次へ」は画面の下のほうにあるので、カレンダーの上から見えるように戻す
+
+    renderSkeleton();
+    setButtons(false);
+    requestAll().then(handleData).catch(showLoadError);
   }
 
   function showProxyMessage(text) {
