@@ -103,6 +103,20 @@
     background: #C47F68; border: none; border-radius: 22px; padding: 12px;   /* ボットの「予約を確定する」と同じ色 */
   }
   .send:disabled { opacity: 0.5; }
+
+  /* 代理予約の入力画面（page=proxy）のメニュー。お名前・電話番号の欄と「次へ」は、上の入力画面の部品を使う */
+  /* メニューの欄は .field にしない（.field input の決まりが、チェックボックスにも付いてしまうため） */
+  .menu-field { margin-bottom: 16px; }
+  .menu-field .label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 6px; }   /* .field .label と同じ見た目 */
+  .menu-list { display: flex; flex-direction: column; gap: 6px; }
+  .menu-item {
+    display: flex; align-items: center; gap: 10px; min-height: 48px;   /* 指で押しやすい高さ */
+    font-size: 15px; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  }
+  .menu-item input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: #C47F68; }
+  .menu-item .menu-name { flex: 1; }
+  .menu-item .menu-info { font-size: 12px; color: var(--brown-light); white-space: nowrap; }
+  .menu-item.off { opacity: 0.45; }   /* 選べる数まで選んだときの、選んでいないメニュー（押せない） */
 </style>
 </head>
 <body>
@@ -151,6 +165,35 @@
     </div>
 
     <div class="message" id="form-message">読み込んでいます…</div>
+  </div>
+
+  <!-- 代理予約の入力画面（page=proxy で開いたときだけ出す。2026-11-22） -->
+  <!-- お電話などで受けたご予約を、お店の方が入力する。お名前・電話番号・メニューを1回で入力し、4行の文を送って閉じる -->
+  <!-- お店の方のスマホで入力するので、お名前・電話番号は自動で入れない（autocomplete="off"。お店の方ご自身のお名前が入らないように） -->
+  <div id="proxy-page" hidden>
+    <h1>代理予約の入力</h1>
+    <div class="form-note">お電話などで受けたご予約を登録します。お客様のお名前・電話番号・メニューを入力してください。</div>
+
+    <div id="proxy-body" hidden>
+      <label class="field">
+        <span class="label">お名前（フルネーム）</span>
+        <input id="proxy-name" type="text" maxlength="20" autocomplete="off" placeholder="（例）山田 花子">
+      </label>
+      <label class="field">
+        <span class="label">電話番号</span>
+        <input id="proxy-phone" type="tel" autocomplete="off" placeholder="（例）090-1234-5678">
+        <span class="hint">分からない場合は「999」と入力してください。</span>
+      </label>
+      <div class="menu-field">
+        <span class="label" id="proxy-menu-label">メニュー</span>
+        <div class="menu-list" id="proxy-menus"></div>
+        <div class="hint" id="proxy-menu-message">メニューを読み込んでいます…</div>
+      </div>
+      <div class="form-error" id="proxy-error"></div>
+      <button id="proxy-send" class="send" type="button" disabled>次へ</button>
+    </div>
+
+    <div class="message" id="proxy-message">読み込んでいます…</div>
   </div>
 
 <script>
@@ -673,9 +716,201 @@
       });
   }
 
-  // 開いたページを決める：page=form なら入力画面、それ以外はカレンダー
-  if (getStartParam('page') === 'form') {
+  // ===== 代理予約の入力画面（page=proxy。2026-11-22） =====
+  // 管理者が「代理予約」と送ったあとのカードから開く（ボットの側の flex.gs の createProxyFormBubble）
+  // お客様のお名前・電話番号・メニューを1回で入力し、4行の文を、管理者の発言としてトークに送って閉じる
+  // ・メニューは、開くたびにボットの窓口から受け取る（liff.gs の action=menus）。「メニュー」シートを変えると、次に開いたときから新しい一覧になる
+  // ・「次へ」の前に、ボットと同じ決まり（お名前・電話番号・999・メニューの数）で確かめ、合わないときは理由をすべて出して送らない
+  // ・受け付けるか（管理者モードの管理者か・メニューが今も受付中か）は、ボットの側でもう一度確かめて決める（admin.gs の handleProxyFormText）
+
+  const PROXY_TITLE = '【代理予約】';  // 送る文の1行目（ボットの側の admin.gs の PROXY_FORM_TITLE と同じ）
+  const PROXY_NO_PHONE = '999';        // 電話番号が分からないときの印（ボットの側の config.gs の NO_PHONE_MARK と同じ）
+  let proxyBoxes = [];                 // メニューのチェックボックス（{ name, box, row }。受け取った順＝「メニュー」シートの順）
+  let proxyMax = 0;                    // 1回に選べるメニューの数（メニューを受け取るまでは 0）
+
+  function startProxyForm() {
+    document.title = '代理予約の入力';
+    document.getElementById('calendar-page').hidden = true;
+    document.getElementById('proxy-page').hidden = false;
+
+    // メニューを、ボットの窓口から受け取る（LIFFの準備と同時に始める。失敗は下でまとめて扱う）
+    const menusPromise = fetchData({ action: 'menus' });
+    menusPromise.catch(function() {});
+
+    // LIFFの準備ができてから、入力の欄を出す（お名前・電話番号は、メニューを待たずに入力できる）
+    liff.init({ liffId: LIFF_ID })
+      .then(function() {
+        if (!liff.isInClient()) {
+          showProxyMessage('このページは、LINEアプリから開いてください。');
+          return;
+        }
+        document.getElementById('proxy-message').hidden = true;
+        document.getElementById('proxy-body').hidden = false;
+        document.getElementById('proxy-send').addEventListener('click', sendProxyForm);
+
+        // メニューが届くまで「次へ」は押せない。受け取れなかったときは、押せないまま理由を出す
+        return menusPromise.then(renderProxyMenus).catch(function() {
+          const note = document.getElementById('proxy-menu-message');
+          note.className = 'form-error';
+          note.textContent = 'メニューを読み込めませんでした。閉じて、もう一度開いてください。';
+        });
+      })
+      .catch(function(e) {
+        showProxyMessage('入力画面を開けませんでした。LINEのトーク画面から開き直してください。（' + (e && e.message) + '）');
+      });
+  }
+
+  // 受け取ったメニューを、チェックボックスにして並べる（文字はすべて textContent で入れる）
+  // 受け取れなかった・形がおかしいときは、エラーにする（上で「読み込めませんでした」を出す）
+  function renderProxyMenus(data) {
+    const menus = (data && Array.isArray(data.menus) ? data.menus : []).filter(function(m) {
+      return m && typeof m.name === 'string' && m.name !== '' && typeof m.priceLabel === 'string' && typeof m.duration === 'number';
+    });
+    const max = data && typeof data.maxMenuCount === 'number' ? Math.min(data.maxMenuCount, menus.length) : 0;
+    if (menus.length === 0 || max < 1) throw new Error((data && data.error) || 'no menus');
+
+    const list = document.getElementById('proxy-menus');
+    proxyBoxes = menus.map(function(m) {
+      const row = document.createElement('label');
+      row.className = 'menu-item';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.addEventListener('change', updateProxyMenuLimit);
+      const name = document.createElement('span');
+      name.className = 'menu-name';
+      name.textContent = m.name;
+      const info = document.createElement('span');
+      info.className = 'menu-info';
+      info.textContent = m.priceLabel + '・約' + m.duration + '分';
+      row.appendChild(box);
+      row.appendChild(name);
+      row.appendChild(info);
+      list.appendChild(row);
+      return { name: m.name, box: box, row: row };
+    });
+    proxyMax = max;
+
+    document.getElementById('proxy-menu-label').textContent = 'メニュー（' + max + 'つまで）';
+    document.getElementById('proxy-menu-message').hidden = true;
+    document.getElementById('proxy-send').disabled = false;
+  }
+
+  // 選んでいるメニュー（「メニュー」シートの順）
+  function getProxyCheckedMenus() {
+    return proxyBoxes.filter(function(item) { return item.box.checked; }).map(function(item) { return item.name; });
+  }
+
+  // 選べる数まで選んだら、選んでいないメニューを押せなくする（1つ外すと、また押せる）
+  function updateProxyMenuLimit() {
+    const full = getProxyCheckedMenus().length >= proxyMax;
+    proxyBoxes.forEach(function(item) {
+      const off = full && !item.box.checked;
+      item.box.disabled = off;
+      item.row.className = 'menu-item' + (off ? ' off' : '');
+    });
+  }
+
+  // ----- ボットと同じ決まり（ボットの側の utils.gs と同じ。片方を変えたら、もう片方も変える） -----
+  // テスト（gas/test/fix93.test.js）で、いろいろな入力について、入力画面とボットの答えが同じかを確かめている
+
+  // 全角の数字を半角にする（utils.gs の toHalfWidthDigits と同じ）
+  function toHalfDigits(text) {
+    return String(text).replace(/[０-９]/g, function(c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    });
+  }
+
+  // お名前の決まり（utils.gs の getNameProblem と同じ）：20文字以内で1行・先頭が = + - @ でない
+  function getProxyNameProblem(name) {
+    if (name === '') return 'お名前を入力してください。';
+    if (name.length > 20) return 'お名前は20文字以内で入力してください。';
+    if (/[\r\n]/.test(name)) return 'お名前は1行で入力してください。';
+    if (/^[=+\-@]/.test(name)) return 'お名前の先頭に「=」「+」「-」「@」は使えません。';
+    return '';
+  }
+
+  // 電話番号として受け付けられるか（utils.gs の isNoPhoneMark・normalizePhone・isValidPhoneNumber と同じ）
+  // 受け付けるもの：999（分からないとき）・携帯電話とIP電話の11桁・固定電話の10桁（全角の数字・ハイフンのなかま・空白・かっこ・点・+81 も）
+  // 受け付けないもの：フリーダイヤルなど（0120・0570・0180・0990）・後ろの8桁が同じ数字の繰り返しや連番
+  function isProxyPhoneOk(text) {
+    if (toHalfDigits(text).trim() === PROXY_NO_PHONE) return true;
+
+    let s = toHalfDigits(text);
+    s = s.replace(/[−–—ー－‐‑]/g, '-').replace(/[\s　()（）.．]/g, '');
+    s = s.replace(/^[+＋]81-?0?/, '0');
+    if (!/^[0-9-]+$/.test(s)) return false;
+
+    const digits = s.replace(/-/g, '');
+    const isMobile = /^0[5-9]0[0-9]{8}$/.test(digits);
+    const isLandline = /^0[1-9][1-9][0-9]{7}$/.test(digits) && !/^0(120|570|180|990)/.test(digits);
+    if (!isMobile && !isLandline) return false;
+
+    const tail = digits.slice(-8);
+    if (/^([0-9])\1{7}$/.test(tail)) return false;
+    if ('0123456789'.indexOf(tail) !== -1 || '9876543210'.indexOf(tail) !== -1) return false;
+    return true;
+  }
+
+  // 入力の確かめ：合わない理由を、すべて並べて返す（問題がなければ空の配列）
+  function getProxyFormProblems(name, phone, menus) {
+    const problems = [];
+    const nameProblem = getProxyNameProblem(name);
+    if (nameProblem) problems.push(nameProblem);
+    if (phone === '') {
+      problems.push('電話番号を入力してください（分からない場合は「999」）。');
+    } else if (!isProxyPhoneOk(phone)) {
+      problems.push('電話番号が正しくないようです（携帯電話は11桁、固定電話は市外局番から10桁。分からない場合は「999」）。');
+    }
+    if (menus.length === 0) {
+      problems.push('メニューを1つ以上選んでください。');
+    } else if (menus.length > proxyMax) {
+      problems.push('メニューは' + proxyMax + 'つまで選べます。');
+    }
+    return problems;
+  }
+
+  // 「次へ」：確かめて、ボットが読み取る形の文（4行）を送って閉じる
+  // 形：1行目「【代理予約】」、2行目「お名前：（お名前）」、3行目「電話番号：（電話番号）」、4行目「メニュー：（メニューを「、」でつなぐ）」
+  //   （ボットの側の admin.gs の parseProxyFormText と同じ。電話番号は入力どおりに送り、数字だけにそろえるのはボットの側）
+  function sendProxyForm() {
+    if (sending || !proxyMax) return;  // 送っている途中・メニューがまだ届いていないときは何もしない
+
+    const name = document.getElementById('proxy-name').value.trim();
+    const phone = document.getElementById('proxy-phone').value.trim();
+    const menus = getProxyCheckedMenus();
+    const problems = getProxyFormProblems(name, phone, menus);
+    document.getElementById('proxy-error').textContent = problems.join('\n');
+    if (problems.length) return;
+
+    const button = document.getElementById('proxy-send');
+    sending = true;
+    button.disabled = true;
+
+    const text = PROXY_TITLE + '\nお名前：' + name + '\n電話番号：' + phone + '\nメニュー：' + menus.join('、');
+    liff.sendMessages([{ type: 'text', text: text }])
+      .then(function() {
+        liff.closeWindow();
+      })
+      .catch(function() {
+        sending = false;
+        button.disabled = false;
+        alert('送信できませんでした。お手数ですが、もう一度お試しください。');
+      });
+  }
+
+  function showProxyMessage(text) {
+    const msg = document.getElementById('proxy-message');
+    msg.className = 'message error';
+    msg.textContent = text;
+    msg.hidden = false;
+  }
+
+  // 開いたページを決める：page=form なら入力画面、page=proxy なら代理予約の入力画面、それ以外はカレンダー
+  const startPage = getStartParam('page');
+  if (startPage === 'form') {
     startForm();
+  } else if (startPage === 'proxy') {
+    startProxyForm();
   } else {
     startCalendar();
   }
